@@ -233,7 +233,18 @@ class MetaFolderApp(QMainWindow):
             # 备注
             note_str = description if description else ""
 
-            item = QTreeWidgetItem([name, size_str, date_str, type_str, tags_str, note_str, ""])
+            # 处理显示文本，移除换行符以避免表格行高异常
+            display_name = name.replace('\n', ' ').replace('\r', '')
+            display_tags = tags_str.replace('\n', ' ').replace('\r', '')
+            display_note = note_str.replace('\n', ' ').replace('\r', '')
+
+            item = QTreeWidgetItem([display_name, size_str, date_str, type_str, display_tags, display_note, ""])
+
+            # 设置完整内容的 tooltip，以便鼠标悬停时查看
+            item.setToolTip(0, name)
+            item.setToolTip(4, tags_str)
+            item.setToolTip(5, note_str)
+
             item.setIcon(0, icon)
             item.setData(0, Qt.UserRole, relative_path)
             item.setData(0, Qt.UserRole + 1, entry_type)
@@ -515,8 +526,8 @@ class MetaFolderApp(QMainWindow):
                 padding: 5px;
             }
             QTreeWidget::item:selected, QListWidget::item:selected {
-                background-color: #0078d7;
-                color: white;
+                background-color: #e5f3ff;
+                color: black;
             }
             QHeaderView::section {
                 background-color: #f0f0f0;
