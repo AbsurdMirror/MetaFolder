@@ -37,12 +37,6 @@ class MetaFolderApp(QMainWindow):
         
         # 创建搜索栏
         search_layout = QHBoxLayout()
-        self.toggle_sidebar_btn = QPushButton("☰")
-        self.toggle_sidebar_btn.setToolTip("显示/隐藏侧边栏")
-        self.toggle_sidebar_btn.setFixedWidth(40)
-        self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
-        search_layout.addWidget(self.toggle_sidebar_btn)
-
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("搜索: 直接输入文件名, t:标签, d:备注")
         self.search_input.textChanged.connect(self.handle_search)
@@ -57,16 +51,22 @@ class MetaFolderApp(QMainWindow):
         
         # 创建文件列表 (QTreeWidget)
         self.file_list = QTreeWidget()
-        self.file_list.setHeaderLabels(["名称", "大小", "修改日期", "类型"])
-        self.file_list.setColumnWidth(0, 400)
-        self.file_list.setColumnWidth(1, 100)
-        self.file_list.setColumnWidth(2, 150)
+        self.file_list.setHeaderLabels(["名称", "大小", "修改日期", "类型", "标签", "备注", "操作"])
+        self.file_list.setColumnWidth(0, 300)
+        self.file_list.setColumnWidth(1, 80)
+        self.file_list.setColumnWidth(2, 140)
+        self.file_list.setColumnWidth(3, 60)
+        self.file_list.setColumnWidth(4, 150)
+        self.file_list.setColumnWidth(5, 150)
+        self.file_list.setColumnWidth(6, 60)
         self.file_list.itemDoubleClicked.connect(self.handle_item_double_click)
+        self.file_list.itemClicked.connect(self.handle_item_click)
         self.file_list.currentItemChanged.connect(self.handle_item_selection)
         self.splitter.addWidget(self.file_list)
         
         # 创建侧边栏
         self.sidebar = QWidget()
+        self.sidebar.hide()  # 默认隐藏侧边栏
         sidebar_layout = QVBoxLayout(self.sidebar)
         
         # 标签管理
@@ -187,7 +187,7 @@ class MetaFolderApp(QMainWindow):
         
         # 添加返回上一级的项目
         if self.current_path != ".":
-            back_item = QTreeWidgetItem(["..", "", "", ""])
+            back_item = QTreeWidgetItem(["..", "", "", "", "", "", ""])
             back_item.setData(0, Qt.UserRole, "..")
             # Set parent folder icon
             back_item.setIcon(0, self.icon_provider.icon(QFileIconProvider.Folder))
@@ -226,12 +226,27 @@ class MetaFolderApp(QMainWindow):
                     # 修正类型显示 (如果需要更详细的类型)
                     # type_str = "文件夹" if file_info.isDir() else "文件"
 
-            item = QTreeWidgetItem([name, size_str, date_str, type_str])
+            # 获取标签
+            tags = self.db_manager.get_tags_for_entry(relative_path)
+            tags_str = ", ".join(tags)
+
+            # 备注
+            note_str = description if description else ""
+
+            item = QTreeWidgetItem([name, size_str, date_str, type_str, tags_str, note_str, ""])
             item.setIcon(0, icon)
             item.setData(0, Qt.UserRole, relative_path)
             item.setData(0, Qt.UserRole + 1, entry_type)
 
+            # 添加编辑按钮
+            edit_btn = QPushButton("编辑")
+            edit_btn.setFixedWidth(50)
+            edit_btn.setCursor(Qt.PointingHandCursor)
+            # 使用 lambda 闭包捕获 item
+            edit_btn.clicked.connect(lambda checked=False, i=item: self.on_edit_clicked(i))
+
             self.file_list.addTopLevelItem(item)
+            self.file_list.setItemWidget(item, 6, edit_btn)
     
     def handle_item_double_click(self, item, column):
         if not self.root_dir:
@@ -282,8 +297,25 @@ class MetaFolderApp(QMainWindow):
             absolute_path = self.scanner.get_absolute_path(relative_path)
             os.startfile(absolute_path)
     
+    def handle_item_click(self, item, column):
+        # 如果点击的不是编辑按钮所在列，隐藏侧边栏
+        if column != 6:
+            self.sidebar.hide()
+
+    def on_edit_clicked(self, item):
+        # 选中该行
+        self.file_list.setCurrentItem(item)
+
+        # 显示侧边栏
+        self.sidebar.show()
+
+        # 确保数据已加载到侧边栏
+        self.handle_item_selection(item, None)
+
     def handle_item_selection(self, current, previous):
         if not current or not self.root_dir:
+            # 如果没有选中项，隐藏侧边栏
+            self.sidebar.hide()
             return
         
         relative_path = current.data(0, Qt.UserRole)
@@ -536,9 +568,3 @@ class MetaFolderApp(QMainWindow):
                 background-color: #e0e0e0;
             }
         """)
-
-    def toggle_sidebar(self):
-        if self.sidebar.isVisible():
-            self.sidebar.hide()
-        else:
-            self.sidebar.show()
