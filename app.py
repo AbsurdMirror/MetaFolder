@@ -2,12 +2,13 @@ import os
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
-    QListWidgetItem, QLineEdit, QPushButton, QLabel, QTextEdit, QFileDialog,
-    QSplitter, QStatusBar, QMenuBar, QMenu, QProgressDialog
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget,
+    QTreeWidgetItem, QLineEdit, QPushButton, QLabel, QTextEdit, QFileDialog,
+    QSplitter, QStatusBar, QMenuBar, QMenu, QProgressDialog, QHeaderView,
+    QFileIconProvider, QListWidget
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QFileInfo, QDateTime
+from PySide6.QtGui import QAction, QIcon
 from db import DatabaseManager
 from scanner import FileScanner
 
@@ -24,6 +25,7 @@ class MetaFolderApp(QMainWindow):
         self.current_path = "."
         self.is_searching = False
         self.search_results = []
+        self.icon_provider = QFileIconProvider()
         
         # 创建菜单栏
         self.create_menu_bar()
@@ -35,6 +37,12 @@ class MetaFolderApp(QMainWindow):
         
         # 创建搜索栏
         search_layout = QHBoxLayout()
+        self.toggle_sidebar_btn = QPushButton("☰")
+        self.toggle_sidebar_btn.setToolTip("显示/隐藏侧边栏")
+        self.toggle_sidebar_btn.setFixedWidth(40)
+        self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
+        search_layout.addWidget(self.toggle_sidebar_btn)
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("搜索: 直接输入文件名, t:标签, d:备注")
         self.search_input.textChanged.connect(self.handle_search)
@@ -45,17 +53,21 @@ class MetaFolderApp(QMainWindow):
         main_layout.addLayout(search_layout)
         
         # 创建分割器
-        splitter = QSplitter(Qt.Horizontal)
+        self.splitter = QSplitter(Qt.Horizontal)
         
-        # 创建文件列表
-        self.file_list = QListWidget()
+        # 创建文件列表 (QTreeWidget)
+        self.file_list = QTreeWidget()
+        self.file_list.setHeaderLabels(["名称", "大小", "修改日期", "类型"])
+        self.file_list.setColumnWidth(0, 400)
+        self.file_list.setColumnWidth(1, 100)
+        self.file_list.setColumnWidth(2, 150)
         self.file_list.itemDoubleClicked.connect(self.handle_item_double_click)
         self.file_list.currentItemChanged.connect(self.handle_item_selection)
-        splitter.addWidget(self.file_list)
+        self.splitter.addWidget(self.file_list)
         
         # 创建侧边栏
-        sidebar = QWidget()
-        sidebar_layout = QVBoxLayout(sidebar)
+        self.sidebar = QWidget()
+        sidebar_layout = QVBoxLayout(self.sidebar)
         
         # 标签管理
         tag_group = QWidget()
@@ -65,6 +77,7 @@ class MetaFolderApp(QMainWindow):
         self.tag_input.setPlaceholderText("输入标签并回车添加")
         self.tag_input.returnPressed.connect(self.add_tag)
         tag_layout.addWidget(self.tag_input)
+        # 使用QListWidget显示标签
         self.tag_list = QListWidget()
         tag_layout.addWidget(self.tag_list)
         self.remove_tag_button = QPushButton("移除选中标签")
@@ -81,9 +94,9 @@ class MetaFolderApp(QMainWindow):
         note_layout.addWidget(self.note_edit)
         sidebar_layout.addWidget(note_group)
         
-        splitter.addWidget(sidebar)
-        splitter.setSizes([700, 300])
-        main_layout.addWidget(splitter)
+        self.splitter.addWidget(self.sidebar)
+        self.splitter.setSizes([700, 300])
+        main_layout.addWidget(self.splitter)
         
         # 创建状态栏
         self.status_bar = QStatusBar()
@@ -91,6 +104,9 @@ class MetaFolderApp(QMainWindow):
         
         # 显示欢迎信息
         self.show_welcome_message()
+
+        # 应用样式
+        self.apply_styles()
     
     def open_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "选择文件夹")
@@ -152,21 +168,30 @@ class MetaFolderApp(QMainWindow):
     
     def show_welcome_message(self):
         self.file_list.clear()
-        welcome_item = QListWidgetItem("欢迎使用 MetaFolder")
-        welcome_item.setFlags(Qt.NoItemFlags)
-        self.file_list.addItem(welcome_item)
-        instruction_item = QListWidgetItem("请从菜单中选择 '文件' -> '打开文件夹' 开始")
-        instruction_item.setFlags(Qt.NoItemFlags)
-        self.file_list.addItem(instruction_item)
+        welcome_item = QTreeWidgetItem(["欢迎使用 MetaFolder"])
+        # welcome_item.setFlags(Qt.NoItemFlags) # QTreeWidget item flags work differently
+        self.file_list.addTopLevelItem(welcome_item)
+        instruction_item = QTreeWidgetItem(["请从菜单中选择 '文件' -> '打开文件夹' 开始"])
+        # instruction_item.setFlags(Qt.NoItemFlags)
+        self.file_list.addTopLevelItem(instruction_item)
     
+    def format_size(self, size):
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} PB"
+
     def update_file_list(self):
         self.file_list.clear()
         
         # 添加返回上一级的项目
         if self.current_path != ".":
-            back_item = QListWidgetItem("..")
-            back_item.setData(Qt.UserRole, "..")
-            self.file_list.addItem(back_item)
+            back_item = QTreeWidgetItem(["..", "", "", ""])
+            back_item.setData(0, Qt.UserRole, "..")
+            # Set parent folder icon
+            back_item.setIcon(0, self.icon_provider.icon(QFileIconProvider.Folder))
+            self.file_list.addTopLevelItem(back_item)
         
         # 获取当前目录下的文件和文件夹
         if not self.is_searching:
@@ -175,19 +200,44 @@ class MetaFolderApp(QMainWindow):
             entries = self.search_results
         
         for relative_path, entry_type, description in entries:
-            item = QListWidgetItem(os.path.basename(relative_path))
-            item.setData(Qt.UserRole, relative_path)
-            item.setData(Qt.UserRole + 1, entry_type)
-            # 根据类型设置不同的图标或样式
-            if entry_type == "folder":
-                item.setText(f"[文件夹] {item.text()}")
-            self.file_list.addItem(item)
+            name = os.path.basename(relative_path)
+
+            # 获取文件信息 (大小, 日期)
+            size_str = ""
+            date_str = ""
+            type_str = "文件" if entry_type == "file" else "文件夹"
+            icon = QIcon()
+
+            if self.scanner:
+                abs_path = self.scanner.get_absolute_path(relative_path)
+                file_info = QFileInfo(abs_path)
+
+                # 获取图标
+                icon = self.icon_provider.icon(file_info)
+
+                if file_info.exists():
+                    # 获取日期
+                    date_str = file_info.lastModified().toString("yyyy-MM-dd HH:mm")
+
+                    # 获取大小
+                    if entry_type == "file":
+                        size_str = self.format_size(file_info.size())
+
+                    # 修正类型显示 (如果需要更详细的类型)
+                    # type_str = "文件夹" if file_info.isDir() else "文件"
+
+            item = QTreeWidgetItem([name, size_str, date_str, type_str])
+            item.setIcon(0, icon)
+            item.setData(0, Qt.UserRole, relative_path)
+            item.setData(0, Qt.UserRole + 1, entry_type)
+
+            self.file_list.addTopLevelItem(item)
     
-    def handle_item_double_click(self, item):
+    def handle_item_double_click(self, item, column):
         if not self.root_dir:
             return
         
-        relative_path = item.data(Qt.UserRole)
+        relative_path = item.data(0, Qt.UserRole)
         if not relative_path:
             return
         
@@ -201,7 +251,7 @@ class MetaFolderApp(QMainWindow):
             return
         
         # 获取条目类型
-        entry_type = item.data(Qt.UserRole + 1)
+        entry_type = item.data(0, Qt.UserRole + 1)
         if entry_type == "folder":
             # 检查是否已经扫描过该文件夹
             if not self.db_manager.is_folder_scanned(relative_path):
@@ -236,12 +286,15 @@ class MetaFolderApp(QMainWindow):
         if not current or not self.root_dir:
             return
         
-        relative_path = current.data(Qt.UserRole)
+        relative_path = current.data(0, Qt.UserRole)
         if not relative_path or relative_path == "..":
             # 清空标签和备注
             self.tag_list.clear()
             # 暂时断开信号连接，避免递归调用
-            self.note_edit.textChanged.disconnect(self.update_note)
+            try:
+                self.note_edit.textChanged.disconnect(self.update_note)
+            except:
+                pass # 可能没有连接
             self.note_edit.clear()
             # 重新连接信号
             self.note_edit.textChanged.connect(self.update_note)
@@ -259,15 +312,19 @@ class MetaFolderApp(QMainWindow):
         if entry:
             description = entry[2] if entry[2] else ""
             # 暂时断开信号连接，避免递归调用
-            self.note_edit.textChanged.disconnect(self.update_note)
+            try:
+                self.note_edit.textChanged.disconnect(self.update_note)
+            except:
+                pass
             self.note_edit.setText(description)
             # 重新连接信号
             self.note_edit.textChanged.connect(self.update_note)
         else:
-            # 暂时断开信号连接，避免递归调用
-            self.note_edit.textChanged.disconnect(self.update_note)
+            try:
+                self.note_edit.textChanged.disconnect(self.update_note)
+            except:
+                pass
             self.note_edit.clear()
-            # 重新连接信号
             self.note_edit.textChanged.connect(self.update_note)
         
         # 更新状态栏
@@ -288,7 +345,7 @@ class MetaFolderApp(QMainWindow):
         if not current_item:
             return
         
-        relative_path = current_item.data(Qt.UserRole)
+        relative_path = current_item.data(0, Qt.UserRole)
         if not relative_path or relative_path == "..":
             return
         
@@ -319,7 +376,7 @@ class MetaFolderApp(QMainWindow):
             return
         
         tag_name = current_tag_item.text()
-        relative_path = current_item.data(Qt.UserRole)
+        relative_path = current_item.data(0, Qt.UserRole)
         if not relative_path or relative_path == "..":
             return
         
@@ -341,7 +398,7 @@ class MetaFolderApp(QMainWindow):
         if not current_item:
             return
         
-        relative_path = current_item.data(Qt.UserRole)
+        relative_path = current_item.data(0, Qt.UserRole)
         if not relative_path or relative_path == "..":
             return
         
@@ -406,3 +463,82 @@ class MetaFolderApp(QMainWindow):
         
         # 显示刷新成功消息
         self.status_bar.showMessage("文件列表已刷新", 2000)
+
+    def apply_styles(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QWidget {
+                font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+                font-size: 14px;
+            }
+            QTreeWidget, QListWidget {
+                border: 1px solid #dcdcdc;
+                background-color: white;
+                border-radius: 4px;
+                outline: 0;
+            }
+            QTreeWidget::item, QListWidget::item {
+                padding: 5px;
+            }
+            QTreeWidget::item:selected, QListWidget::item:selected {
+                background-color: #0078d7;
+                color: white;
+            }
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                padding: 5px;
+                border: none;
+                border-right: 1px solid #dcdcdc;
+                border-bottom: 1px solid #dcdcdc;
+                font-weight: bold;
+            }
+            QLineEdit {
+                padding: 6px;
+                border: 1px solid #dcdcdc;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0078d7;
+            }
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #1084e3;
+            }
+            QPushButton:pressed {
+                background-color: #006cc1;
+            }
+            QTextEdit {
+                border: 1px solid #dcdcdc;
+                border-radius: 4px;
+                background-color: white;
+                padding: 5px;
+            }
+            QStatusBar {
+                background-color: #f0f0f0;
+                border-top: 1px solid #dcdcdc;
+            }
+            QMenuBar {
+                background-color: #f0f0f0;
+            }
+            QMenuBar::item:selected {
+                background-color: #e0e0e0;
+            }
+            QSplitter::handle {
+                background-color: #e0e0e0;
+            }
+        """)
+
+    def toggle_sidebar(self):
+        if self.sidebar.isVisible():
+            self.sidebar.hide()
+        else:
+            self.sidebar.show()
