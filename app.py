@@ -185,13 +185,18 @@ class MetaFolderApp(QMainWindow):
     def update_file_list(self):
         self.file_list.clear()
         
+        # 禁用排序以提高插入速度
+        self.file_list.setSortingEnabled(False)
+
+        items_to_add = []
+
         # 添加返回上一级的项目
         if self.current_path != ".":
             back_item = QTreeWidgetItem(["..", "", "", "", "", "", ""])
             back_item.setData(0, Qt.UserRole, "..")
             # Set parent folder icon
             back_item.setIcon(0, self.icon_provider.icon(QFileIconProvider.Folder))
-            self.file_list.addTopLevelItem(back_item)
+            items_to_add.append(back_item)
         
         # 获取当前目录下的文件和文件夹
         if not self.is_searching:
@@ -199,6 +204,7 @@ class MetaFolderApp(QMainWindow):
         else:
             entries = self.search_results
         
+        # 批量处理条目
         for relative_path, entry_type, description in entries:
             name = os.path.basename(relative_path)
 
@@ -249,15 +255,28 @@ class MetaFolderApp(QMainWindow):
             item.setData(0, Qt.UserRole, relative_path)
             item.setData(0, Qt.UserRole + 1, entry_type)
 
+            items_to_add.append(item)
+
+        # 批量添加项目
+        self.file_list.addTopLevelItems(items_to_add)
+
+        # 批量添加按钮（需要在项目添加到树之后进行）
+        for i, item in enumerate(items_to_add):
+            # 跳过返回上一级的项目
+            if item.data(0, Qt.UserRole) == "..":
+                continue
+
             # 添加编辑按钮
             edit_btn = QPushButton("编辑")
             edit_btn.setFixedWidth(50)
             edit_btn.setCursor(Qt.PointingHandCursor)
             # 使用 lambda 闭包捕获 item
-            edit_btn.clicked.connect(lambda checked=False, i=item: self.on_edit_clicked(i))
+            edit_btn.clicked.connect(lambda checked=False, it=item: self.on_edit_clicked(it))
 
-            self.file_list.addTopLevelItem(item)
             self.file_list.setItemWidget(item, 6, edit_btn)
+
+        # 重新启用排序（如果需要）
+        # self.file_list.setSortingEnabled(True)
     
     def handle_item_double_click(self, item, column):
         if not self.root_dir:
@@ -351,6 +370,7 @@ class MetaFolderApp(QMainWindow):
             self.tag_list.addItem(tag)
         
         # 获取备注
+        description = ""
         entry = self.db_manager.get_entry(relative_path)
         if entry:
             description = entry[2] if entry[2] else ""
