@@ -208,7 +208,7 @@ class DatabaseManager:
             if search_type == "tag":
                 # 按标签搜索
                 self.cursor.execute('''
-                SELECT entries.relative_path, entries.type, entries.description FROM entries
+                SELECT DISTINCT entries.relative_path, entries.type, entries.description FROM entries
                 JOIN entry_tags ON entries.id = entry_tags.entry_id
                 JOIN tags ON entry_tags.tag_id = tags.id
                 WHERE tags.name LIKE ?
